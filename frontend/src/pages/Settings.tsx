@@ -253,7 +253,7 @@ function ConfigField({ field }: { field: FieldConfig }) {
   const options = SELECT_FIELDS[field.key]
   const helpText =
     field.key === 'default_executor'
-      ? '仅对支持的平台生效；当前只有 Trae 支持浏览器模式，其他平台会自动回退为纯协议。'
+      ? '仅对支持的平台生效；ChatGPT、Cursor、Grok、Kiro、Tavily、Trae 支持浏览器模式，OpenBlockLabs 仅支持纯协议。'
       : undefined
 
   return (

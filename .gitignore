@@ -50,3 +50,4 @@ data/
 .idea/
 .vscode/
 *.swp
+.claude/

@@ -149,10 +149,13 @@ export default function Register() {
           <Form.Item name="platform" label="平台" rules={[{ required: true }]}>
             <Select
               options={[
+                { value: 'chatgpt', label: 'ChatGPT' },
                 { value: 'trae', label: 'Trae.ai' },
                 { value: 'cursor', label: 'Cursor' },
                 { value: 'kiro', label: 'Kiro' },
                 { value: 'grok', label: 'Grok' },
+                { value: 'tavily', label: 'Tavily' },
+                { value: 'openblocklabs', label: 'OpenBlockLabs' },
               ]}
             />
           </Form.Item>
