@@ -166,11 +166,19 @@ def auth_status():
 
 
 @router.post("/setup")
-def setup_password(body: SetupPasswordRequest):
-    """Set or update password from settings (no auth required, middleware handles protection)."""
+def setup_password(
+    body: SetupPasswordRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+):
+    """Set initial password, or update it only when the caller is already authenticated."""
     if not body.password or len(body.password) < 6:
         raise HTTPException(status_code=400, detail="密码至少需要 6 位")
-    _cfg().set("auth_password_hash", _hash_pw(body.password))
+    cfg = _cfg()
+    if cfg.get("auth_password_hash", ""):
+        if credentials is None:
+            raise HTTPException(status_code=401, detail="未认证")
+        verify_token(credentials.credentials)
+    cfg.set("auth_password_hash", _hash_pw(body.password))
     token = create_token()
     return {"ok": True, "access_token": token, "token_type": "bearer"}
 

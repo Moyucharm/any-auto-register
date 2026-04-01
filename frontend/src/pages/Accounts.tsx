@@ -323,6 +323,7 @@ function LogPanel({ taskId, onDone }: { taskId: string; onDone: () => void }) {
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
+  const nextSinceRef = useRef(0)
   const handleCopyAll = async () => {
     try {
       await navigator.clipboard.writeText(lines.join('\n'))
@@ -338,6 +339,8 @@ function LogPanel({ taskId, onDone }: { taskId: string; onDone: () => void }) {
     let cancelled = false
     const BASE_RETRY_MS = 1000
     const MAX_RETRY_MS = 8000
+    nextSinceRef.current = 0
+    setLines([])
 
     const sleep = async (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -347,7 +350,8 @@ function LogPanel({ taskId, onDone }: { taskId: string; onDone: () => void }) {
         const headers: Record<string, string> = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
 
-        const res = await fetch(`${API_BASE}/tasks/${taskId}/logs/stream`, {
+        const since = nextSinceRef.current
+        const res = await fetch(`${API_BASE}/tasks/${taskId}/logs/stream?since=${since}`, {
           headers,
           signal: controller.signal,
         })
@@ -356,7 +360,13 @@ function LogPanel({ taskId, onDone }: { taskId: string; onDone: () => void }) {
           return true
         }
 
-        const reader = res.body!.getReader()
+        if (!res.body) {
+          setError('日志流未返回可读数据')
+          return false
+        }
+
+        setError('')
+        const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 
@@ -373,7 +383,10 @@ function LogPanel({ taskId, onDone }: { taskId: string; onDone: () => void }) {
             if (!match) continue
             try {
               const d = JSON.parse(match[1])
-              if (d.line) setLines((prev) => [...prev, d.line])
+              if (d.line) {
+                nextSinceRef.current += 1
+                setLines((prev) => [...prev, d.line])
+              }
               if (d.done) {
                 setDone(true)
                 onDone()
