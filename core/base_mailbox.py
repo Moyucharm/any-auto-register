@@ -310,6 +310,13 @@ def create_mailbox(
             custom_auth=extra.get("cfworker_custom_auth", ""),
             proxy=proxy,
         )
+    elif provider == "wrdo":
+        return WRDOMailbox(
+            api_url=extra.get("wrdo_api_url", ""),
+            api_key=extra.get("wrdo_api_key", ""),
+            domain=extra.get("wrdo_domain", ""),
+            proxy=proxy,
+        )
     elif provider == "luckmail":
         return LuckMailMailbox(
             base_url=extra.get("luckmail_base_url") or "https://mails.luckyous.com/",
@@ -2888,6 +2895,180 @@ class FreemailMailbox(BaseMailbox):
                     if code:
                         if code in exclude_codes:
                             continue
+                        return code
+            except Exception:
+                pass
+            return None
+
+        return self._run_polling_wait(
+            timeout=timeout,
+            poll_interval=3,
+            poll_once=poll_once,
+        )
+
+
+class WRDOMailbox(BaseMailbox):
+    """WR.DO 临时邮箱服务 (https://wr.do)"""
+
+    def __init__(
+        self,
+        api_url: str = "",
+        api_key: str = "",
+        domain: str = "",
+        proxy: str = None,
+    ):
+        self.api = (api_url or "").rstrip("/")
+        self.api_key = str(api_key or "").strip()
+        self.domains = self._parse_domains(domain)
+        self.proxy = build_requests_proxy_config(proxy)
+        self._email = None
+
+    @staticmethod
+    def _parse_domains(value: Any) -> list[str]:
+        """Parse comma / space / newline separated domain list."""
+        raw = str(value or "").strip().lower()
+        parts = re.split(r"[,\s]+", raw)
+        domains = []
+        for p in parts:
+            p = p.strip().lstrip("@")
+            if p:
+                domains.append(p)
+        return domains
+
+    @staticmethod
+    def _generate_local_part() -> str:
+        import string as _string
+
+        letters_1 = "".join(random.choices(_string.ascii_lowercase, k=random.randint(4, 6)))
+        numbers = "".join(random.choices(_string.digits, k=random.randint(1, 3)))
+        letters_2 = "".join(random.choices(_string.ascii_lowercase, k=random.randint(0, 5)))
+        return letters_1 + numbers + letters_2
+
+    def _headers(self, include_content_type: bool = False) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.api_key:
+            headers["wrdo-api-key"] = self.api_key
+        if include_content_type:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    def get_email(self) -> MailboxAccount:
+        import requests
+
+        if not self.api:
+            raise RuntimeError("WR.DO: 未配置 API URL")
+        if not self.api_key:
+            raise RuntimeError("WR.DO: 未配置 API Key (Token)")
+        if not self.domains:
+            raise RuntimeError("WR.DO: 未配置邮箱域名")
+
+        domain = random.choice(self.domains)
+        address = f"{self._generate_local_part()}@{domain}"
+        url = f"{self.api}/api/v1/email"
+
+        try:
+            response = requests.post(
+                url,
+                json={"emailAddress": address},
+                headers=self._headers(include_content_type=True),
+                proxies=self.proxy,
+                timeout=15,
+            )
+            if response.status_code != 201:
+                raise RuntimeError(
+                    f"WR.DO create email 失败: HTTP {response.status_code} - {response.text[:200]}"
+                )
+            data = response.json()
+            email = data.get("emailAddress", address)
+        except requests.RequestException as exc:
+            raise RuntimeError(f"WR.DO create email 网络异常: {exc}") from exc
+
+        self._email = email
+        self._log(f"[WR.DO] 创建邮箱: {email}")
+        return MailboxAccount(
+            email=email,
+            account_id=email,
+            extra={"provider": "wrdo", "domain": domain},
+        )
+
+    def get_current_ids(self, account: MailboxAccount) -> set:
+        import requests
+
+        try:
+            url = f"{self.api}/api/v1/email/inbox"
+            response = requests.get(
+                url,
+                params={"emailAddress": account.email, "page": 1, "size": 50},
+                headers=self._headers(),
+                proxies=self.proxy,
+                timeout=10,
+            )
+            if response.status_code != 200:
+                return set()
+            data = response.json()
+            messages = data.get("list") or []
+            return {str(m.get("id")) for m in messages if m.get("id") is not None}
+        except Exception:
+            return set()
+
+    def wait_for_code(
+        self,
+        account: MailboxAccount,
+        keyword: str = "",
+        timeout: int = 120,
+        before_ids: set = None,
+        code_pattern: str = None,
+        **kwargs,
+    ) -> str:
+        import re
+        import requests
+
+        seen = {str(mid) for mid in (before_ids or set())}
+        exclude_codes = {
+            str(code) for code in (kwargs.get("exclude_codes") or set()) if code
+        }
+
+        def poll_once() -> Optional[str]:
+            try:
+                url = f"{self.api}/api/v1/email/inbox"
+                response = requests.get(
+                    url,
+                    params={"emailAddress": account.email, "page": 1, "size": 50},
+                    headers=self._headers(),
+                    proxies=self.proxy,
+                    timeout=10,
+                )
+                if response.status_code != 200:
+                    return None
+                data = response.json()
+                messages = data.get("list") or []
+                for msg in messages:
+                    msg_id = str(msg.get("id") or "").strip()
+                    if not msg_id or msg_id in seen:
+                        continue
+                    seen.add(msg_id)
+
+                    search_text = " ".join(
+                        [
+                            str(msg.get("subject") or ""),
+                            str(msg.get("html") or ""),
+                            str(msg.get("text") or ""),
+                        ]
+                    ).strip()
+                    search_text = self._decode_raw_content(search_text) or search_text
+                    search_text = re.sub(
+                        r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+                        "",
+                        search_text,
+                    )
+                    if keyword and keyword.lower() not in search_text.lower():
+                        continue
+
+                    code = self._safe_extract(search_text, code_pattern)
+                    if code and code in exclude_codes:
+                        continue
+                    if code:
+                        self._log(f"[WR.DO] 收到验证码: {code}")
                         return code
             except Exception:
                 pass

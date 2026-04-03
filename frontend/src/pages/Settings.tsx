@@ -30,6 +30,7 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
     { label: 'OpenTrashMail', value: 'opentrashmail' },
     { label: 'Freemail（自建 CF Worker）', value: 'freemail' },
     { label: 'CF Worker（自建域名）', value: 'cfworker' },
+    { label: 'WR.DO', value: 'wrdo' },
   ],
   maliapi_auto_domain_strategy: [
     { label: 'balanced', value: 'balanced' },
@@ -192,6 +193,15 @@ const TAB_ITEMS = [
           { key: 'luckmail_api_key', label: 'API Key', secret: true },
           { key: 'luckmail_email_type', label: '邮箱类型（可选）', placeholder: 'ms_graph / ms_imap / self_built' },
           { key: 'luckmail_domain', label: '邮箱域名（可选）', placeholder: 'outlook.com / gmail.com' },
+        ],
+      },
+      {
+        title: 'WR.DO',
+        desc: '基于 WR.DO 的临时邮箱服务，需要 API Key 和邮箱域名',
+        fields: [
+          { key: 'wrdo_api_url', label: 'URL', placeholder: 'https://wr.do' },
+          { key: 'wrdo_domain', label: '邮箱域名', placeholder: 'example.com, test.com（多个用逗号分隔）' },
+          { key: 'wrdo_api_key', label: 'Token', secret: true },
         ],
       },
     ],

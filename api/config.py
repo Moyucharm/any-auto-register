@@ -86,6 +86,9 @@ CONFIG_KEYS = [
     "grok2api_quota",
     "kiro_manager_path",
     "kiro_manager_exe",
+    "wrdo_api_url",
+    "wrdo_api_key",
+    "wrdo_domain",
 ]
 
 

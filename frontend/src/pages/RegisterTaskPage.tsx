@@ -92,6 +92,9 @@ export default function RegisterTaskPage() {
         luckmail_api_key: cfg.luckmail_api_key || '',
         luckmail_email_type: cfg.luckmail_email_type || '',
         luckmail_domain: cfg.luckmail_domain || '',
+        wrdo_api_url: cfg.wrdo_api_url || '',
+        wrdo_api_key: cfg.wrdo_api_key || '',
+        wrdo_domain: cfg.wrdo_domain || '',
       })
     })
   }, [form])
@@ -149,6 +152,9 @@ export default function RegisterTaskPage() {
       luckmail_api_key: values.luckmail_api_key,
       luckmail_email_type: values.luckmail_email_type,
       luckmail_domain: values.luckmail_domain,
+      wrdo_api_url: values.wrdo_api_url,
+      wrdo_api_key: values.wrdo_api_key,
+      wrdo_domain: values.wrdo_domain,
       yescaptcha_key: values.yescaptcha_key,
       solver_url: values.solver_url,
     }
@@ -297,6 +303,7 @@ export default function RegisterTaskPage() {
                 { value: 'freemail', label: 'Freemail' },
                 { value: 'laoudo', label: 'Laoudo' },
                 { value: 'cfworker', label: 'CF Worker' },
+                { value: 'wrdo', label: 'WR.DO' },
               ]}
             />
           </Form.Item>
@@ -473,6 +480,19 @@ export default function RegisterTaskPage() {
               </Form.Item>
               <Form.Item name="luckmail_domain" label="邮箱域名（可选）">
                 <Input placeholder="outlook.com" />
+              </Form.Item>
+            </>
+          )}
+          {mailProvider === 'wrdo' && (
+            <>
+              <Form.Item name="wrdo_api_url" label="URL">
+                <Input placeholder="https://wr.do" />
+              </Form.Item>
+              <Form.Item name="wrdo_domain" label="邮箱域名" extra="多个域名用逗号或空格分隔，随机选取">
+                <Input placeholder="example.com, test.com" />
+              </Form.Item>
+              <Form.Item name="wrdo_api_key" label="Token">
+                <Input.Password placeholder="wrdo-api-key" />
               </Form.Item>
             </>
           )}
