@@ -646,6 +646,7 @@ class RefreshTokenRegistrationEngine:
                 headers=headers,
                 data=register_body,
             )
+            final_response = response
 
             self._log(f"提交密码状态: {response.status_code}")
 
@@ -653,9 +654,42 @@ class RefreshTokenRegistrationEngine:
                 error_text = response.text[:500]
                 self._log(f"密码注册失败: {error_text}", "warning")
 
+                should_retry = response.status_code in (400, 403) and any(
+                    marker in error_text.lower()
+                    for marker in (
+                        "sentinel",
+                        "failed to create account",
+                        "please try again",
+                    )
+                )
+                if should_retry:
+                    self._log("密码注册命中 400/403，刷新 Sentinel token 后重试一次...", "warning")
+                    retry_headers = self._build_json_headers(
+                        referer="https://auth.openai.com/create-account/password",
+                        include_device_id=True,
+                        include_datadog=True,
+                    )
+                    retry_token = self._check_sentinel(
+                        self._device_id or "",
+                        flow="username_password_create",
+                    )
+                    if retry_token:
+                        retry_headers["openai-sentinel-token"] = retry_token
+                    retry_response = self.session.post(
+                        OPENAI_API_ENDPOINTS["register"],
+                        headers=retry_headers,
+                        data=register_body,
+                    )
+                    final_response = retry_response
+                    self._log(f"提交密码重试状态: {retry_response.status_code}")
+                    if retry_response.status_code == 200:
+                        return True, password
+                    error_text = retry_response.text[:500]
+                    self._log(f"密码注册重试失败: {error_text}", "warning")
+
                 # 解析错误信息，判断是否是邮箱已注册
                 try:
-                    error_json = response.json()
+                    error_json = final_response.json()
                     error_msg = error_json.get("error", {}).get("message", "")
                     error_code = error_json.get("error", {}).get("code", "")
 
