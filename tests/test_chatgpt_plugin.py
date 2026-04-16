@@ -32,6 +32,15 @@ class _TrackingMailbox:
         return "123456"
 
 
+class _RequeueMailbox(_TrackingMailbox):
+    def __init__(self):
+        super().__init__()
+        self.requeued = []
+
+    def requeue_account(self, account):
+        self.requeued.append(account)
+
+
 class _FakeAdapter:
     def run(self, context):
         context.email_service.create_email()
@@ -55,6 +64,12 @@ class _VerificationAdapter:
 
     def build_account(self, result, fallback_password):
         return {"success": True, "password": fallback_password}
+
+
+class _FailingAdapter:
+    def run(self, context):
+        context.email_service.create_email()
+        return mock.Mock(success=False, error_message="boom")
 
 
 class ChatGPTPluginTests(unittest.TestCase):
@@ -96,6 +111,44 @@ class ChatGPTPluginTests(unittest.TestCase):
         self.assertEqual(kwargs.get("before_ids"), {"mid-1"})
         self.assertEqual(kwargs.get("otp_sent_at"), 123.0)
         self.assertEqual(kwargs.get("exclude_codes"), {"654321"})
+
+    def test_custom_provider_prefers_configured_mailbox_timeout(self):
+        mailbox = _TrackingMailbox()
+        platform = ChatGPTPlatform(
+            config=RegisterConfig(
+                extra={
+                    "chatgpt_registration_mode": "refresh_token",
+                    "mailbox_otp_timeout_seconds": 90,
+                }
+            ),
+            mailbox=mailbox,
+        )
+        adapter = _VerificationAdapter()
+
+        with mock.patch(
+            "platforms.chatgpt.plugin.build_chatgpt_registration_mode_adapter",
+            return_value=adapter,
+        ):
+            platform.register()
+
+        _, kwargs = mailbox.wait_call
+        self.assertEqual(kwargs.get("timeout"), 90)
+
+    def test_custom_provider_does_not_requeue_mailbox_account_on_failure(self):
+        mailbox = _RequeueMailbox()
+        platform = ChatGPTPlatform(
+            config=RegisterConfig(extra={"chatgpt_registration_mode": "refresh_token"}),
+            mailbox=mailbox,
+        )
+
+        with mock.patch(
+            "platforms.chatgpt.plugin.build_chatgpt_registration_mode_adapter",
+            return_value=_FailingAdapter(),
+        ):
+            with self.assertRaises(RuntimeError):
+                platform.register()
+
+        self.assertEqual(mailbox.requeued, [])
 
 
 if __name__ == "__main__":
