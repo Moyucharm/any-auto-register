@@ -50,13 +50,13 @@ class RegistrationResult:
         return {
             "success": self.success,
             "email": self.email,
-            "password": self.password,
+            "password": "[REDACTED]" if self.password else "",
             "account_id": self.account_id,
             "workspace_id": self.workspace_id,
-            "access_token": self.access_token[:20] + "..." if self.access_token else "",
-            "refresh_token": self.refresh_token[:20] + "..." if self.refresh_token else "",
-            "id_token": self.id_token[:20] + "..." if self.id_token else "",
-            "session_token": self.session_token[:20] + "..." if self.session_token else "",
+            "access_token": "[REDACTED]" if self.access_token else "",
+            "refresh_token": "[REDACTED]" if self.refresh_token else "",
+            "id_token": "[REDACTED]" if self.id_token else "",
+            "session_token": "[REDACTED]" if self.session_token else "",
             "error_message": self.error_message,
             "logs": self.logs or [],
             "metadata": self.metadata or {},
@@ -477,7 +477,7 @@ class RefreshTokenRegistrationEngine:
             first_name, last_name = generate_random_name()
             birthdate = generate_random_birthday()
             self._log(f"邮箱: {result.email}")
-            self._log(f"密码: {self.password}")
+            self._log("密码: [REDACTED]")
             self._log(f"注册信息: {first_name} {last_name}, 生日: {birthdate}")
             self._log("流程策略: 注册阶段推进到 about_you 后切换到 OAuth 流程继续完成后续步骤")
             self._log(

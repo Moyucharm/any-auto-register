@@ -1572,8 +1572,9 @@ function SecurityPanel() {
     try {
       await apiFetch('/auth/disable', { method: 'POST' })
       localStorage.removeItem('auth_token')
-      msg.success('密码保护已关闭')
-      await loadStatus()
+      msg.success('当前访问密码已清除，请重新设置新密码')
+      window.location.href = '/login'
+      return
     } catch (e: any) {
       msg.error(e.message)
     } finally {
@@ -1659,7 +1660,7 @@ function SecurityPanel() {
         {!status?.has_password ? (
           <Space direction="vertical" style={{ width: '100%' }}>
             <Typography.Text type="secondary">
-              启用后，访问页面需要输入密码。默认不开启，任何能访问此地址的人均可使用。
+              启用后，访问页面需要输入密码。未设置密码时，系统只允许初始化访问密码，其它管理 API 会被拒绝。
             </Typography.Text>
             <Form form={enableForm} layout="vertical" onFinish={handleEnable} requiredMark={false} style={{ maxWidth: 360, marginTop: 8 }}>
               <Form.Item name="password" label="设置访问密码" rules={[{ required: true, message: '请输入密码' }, { min: 6, message: '至少 6 位' }]}>
@@ -1677,9 +1678,9 @@ function SecurityPanel() {
           </Space>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Typography.Text type="secondary">当前已启用密码保护，关闭后任何人无需密码即可访问。</Typography.Text>
+            <Typography.Text type="secondary">清除当前访问密码后，系统会立即回到初始化状态，必须重新设置密码才能继续访问。</Typography.Text>
             <Button danger loading={loading} onClick={handleDisableAuth}>
-              关闭密码保护
+              清除当前访问密码
             </Button>
           </Space>
         )}

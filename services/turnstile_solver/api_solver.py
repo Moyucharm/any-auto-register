@@ -1104,7 +1104,7 @@ def parse_args():
     parser.add_argument('--random', action='store_true', help='Use random User-Agent and Sec-CH-UA configuration from pool')
     parser.add_argument('--browser', type=str, help='Specify browser name to use (e.g., chrome, firefox)')
     parser.add_argument('--version', type=str, help='Specify browser version to use (e.g., 139, 141)')
-    parser.add_argument('--host', type=str, default='0.0.0.0', help='Specify the IP address where the API solver runs. (Default: 0.0.0.0)')
+    parser.add_argument('--host', type=str, default='127.0.0.1', help='Specify the IP address where the API solver runs. (Default: 127.0.0.1)')
     parser.add_argument('--port', type=str, default=os.getenv('SOLVER_PORT', '8889'), help='Set the port for the API solver to listen on. (Default: SOLVER_PORT env or 8889)')
     return parser.parse_args()
 

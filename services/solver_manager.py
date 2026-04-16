@@ -24,7 +24,7 @@ def _solver_url() -> str:
 
 
 def _solver_bind_host() -> str:
-    return os.getenv("SOLVER_BIND_HOST", "0.0.0.0")
+    return os.getenv("SOLVER_BIND_HOST", "127.0.0.1")
 
 
 def _solver_browser_type() -> str:

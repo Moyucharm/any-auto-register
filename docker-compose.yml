@@ -17,15 +17,15 @@ services:
       APP_RUNTIME_DIR: /runtime
       APP_ENABLE_SOLVER: "1"
       SOLVER_PORT: "8889"
-      SOLVER_BIND_HOST: 0.0.0.0
+      SOLVER_BIND_HOST: 127.0.0.1
       LOCAL_SOLVER_URL: http://127.0.0.1:8889
       SOLVER_BROWSER_TYPE: ${SOLVER_BROWSER_TYPE:-camoufox}
       PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-}
     ports:
-      - "8000:8000"
+      - "${APP_PORT_BIND:-127.0.0.1:8000}:8000"
       - "127.0.0.1:8889:8889"
-      - "${CLIPROXYAPI_PORT_BIND:-8317}:8317"
-      - "${GROK2API_PORT_BIND:-8011}:8011"
+      - "${CLIPROXYAPI_PORT_BIND:-127.0.0.1:8317}:8317"
+      - "${GROK2API_PORT_BIND:-127.0.0.1:8011}:8011"
     volumes:
       - ${APP_RUNTIME_BIND:-./data}:/runtime
       - ${APP_EXT_TARGETS_BIND:-./_ext_targets}:/_ext_targets

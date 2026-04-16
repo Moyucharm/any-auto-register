@@ -19,6 +19,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _bearer = HTTPBearer(auto_error=False)
 
+_PASSWORD_HASH_PREFIX = "scrypt"
+_PASSWORD_HASH_N = 1 << 14
+_PASSWORD_HASH_R = 8
+_PASSWORD_HASH_P = 1
+
 
 # ── Config helpers ─────────────────────────────────────────────────────────────
 
@@ -89,10 +94,58 @@ def require_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(_
     verify_token(credentials.credentials)
 
 
+def has_password_configured() -> bool:
+    return bool(_cfg().get("auth_password_hash", ""))
+
+
+def is_auth_exempt_path(path: str) -> bool:
+    text = str(path or "")
+    return text.startswith("/api/auth/") or not text.startswith("/api/")
+
+
+def should_block_uninitialized_api(path: str, has_password: bool) -> bool:
+    return str(path or "").startswith("/api/") and not is_auth_exempt_path(path) and not has_password
+
+
 # ── Password ───────────────────────────────────────────────────────────────────
 
 def _hash_pw(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    salt = secrets.token_bytes(16)
+    derived = hashlib.scrypt(
+        password.encode("utf-8"),
+        salt=salt,
+        n=_PASSWORD_HASH_N,
+        r=_PASSWORD_HASH_R,
+        p=_PASSWORD_HASH_P,
+    )
+    return (
+        f"{_PASSWORD_HASH_PREFIX}${_PASSWORD_HASH_N}${_PASSWORD_HASH_R}$"
+        f"{_PASSWORD_HASH_P}${salt.hex()}${derived.hex()}"
+    )
+
+
+def _verify_pw(password: str, stored: str) -> bool:
+    text = str(stored or "").strip()
+    if not text:
+        return False
+
+    parts = text.split("$")
+    if len(parts) == 6 and parts[0] == _PASSWORD_HASH_PREFIX:
+        _, n_raw, r_raw, p_raw, salt_hex, digest_hex = parts
+        try:
+            derived = hashlib.scrypt(
+                password.encode("utf-8"),
+                salt=bytes.fromhex(salt_hex),
+                n=int(n_raw),
+                r=int(r_raw),
+                p=int(p_raw),
+            )
+        except (TypeError, ValueError):
+            return False
+        return hmac.compare_digest(derived.hex(), digest_hex)
+
+    legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy, text)
 
 
 # ── TOTP (RFC 6238, stdlib only) ───────────────────────────────────────────────
@@ -158,10 +211,9 @@ class EnableTotpRequest(BaseModel):
 
 @router.get("/status")
 def auth_status():
-    cfg = _cfg()
     return {
-        "has_password": bool(cfg.get("auth_password_hash", "")),
-        "has_totp": bool(cfg.get("auth_totp_secret", "")),
+        "has_password": has_password_configured(),
+        "has_totp": bool(_cfg().get("auth_totp_secret", "")),
     }
 
 
@@ -174,7 +226,7 @@ def setup_password(
     if not body.password or len(body.password) < 6:
         raise HTTPException(status_code=400, detail="密码至少需要 6 位")
     cfg = _cfg()
-    if cfg.get("auth_password_hash", ""):
+    if has_password_configured():
         if credentials is None:
             raise HTTPException(status_code=401, detail="未认证")
         verify_token(credentials.credentials)
@@ -185,9 +237,9 @@ def setup_password(
 
 @router.post("/disable")
 def disable_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer)):
-    """Disable password protection. Requires auth only if a password is currently set."""
+    """Clear the current password and return to bootstrap mode."""
     cfg = _cfg()
-    if cfg.get("auth_password_hash", ""):
+    if has_password_configured():
         if credentials is None:
             raise HTTPException(status_code=401, detail="未认证")
         verify_token(credentials.credentials)
@@ -202,8 +254,10 @@ def login(body: LoginRequest):
     stored = cfg.get("auth_password_hash", "")
     if not stored:
         raise HTTPException(status_code=403, detail="no_password_set")
-    if not hmac.compare_digest(_hash_pw(body.password), stored):
+    if not _verify_pw(body.password, stored):
         raise HTTPException(status_code=401, detail="密码错误")
+    if not stored.startswith(f"{_PASSWORD_HASH_PREFIX}$"):
+        cfg.set("auth_password_hash", _hash_pw(body.password))
     totp_secret = cfg.get("auth_totp_secret", "")
     if totp_secret:
         temp = secrets.token_hex(24)
@@ -238,7 +292,7 @@ def logout():
 def change_password(body: ChangePasswordRequest):
     cfg = _cfg()
     stored = cfg.get("auth_password_hash", "")
-    if stored and not hmac.compare_digest(_hash_pw(body.current_password), stored):
+    if stored and not _verify_pw(body.current_password, stored):
         raise HTTPException(status_code=400, detail="当前密码错误")
     if not body.new_password or len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="新密码至少需要 6 位")

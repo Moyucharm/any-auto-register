@@ -24,6 +24,24 @@ from api.contribution import router as contribution_router
 EXPECTED_CONDA_ENV = os.getenv("APP_CONDA_ENV", "any-auto-register")
 
 
+def _cors_origins() -> list[str]:
+    raw = str(os.getenv("APP_CORS_ORIGINS", "") or "").strip()
+    if raw == "*":
+        return ["*"]
+    if raw:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ]
+
+
 def _detect_conda_env() -> str:
     conda_env = os.getenv("CONDA_DEFAULT_ENV")
     if conda_env:
@@ -80,11 +98,14 @@ app = FastAPI(title="Account Manager", version="1.0.0", lifespan=lifespan)
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/auth/") or not path.startswith("/api/"):
+    from api.auth import is_auth_exempt_path, should_block_uninitialized_api
+
+    if is_auth_exempt_path(path):
         return await call_next(request)
     from core.config_store import config_store as _cs
-    if not _cs.get("auth_password_hash", ""):
-        return await call_next(request)
+    has_password = bool(_cs.get("auth_password_hash", ""))
+    if should_block_uninitialized_api(path, has_password):
+        return JSONResponse({"detail": "请先初始化访问密码"}, status_code=403)
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return JSONResponse({"detail": "未认证，请先登录"}, status_code=401)
@@ -98,9 +119,9 @@ async def auth_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins(),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(accounts_router, prefix="/api")
@@ -142,7 +163,7 @@ if os.path.isdir(_static_dir):
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.getenv("HOST", "0.0.0.0")
+    host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
     reload_enabled = os.getenv("APP_RELOAD", "0").lower() in {"1", "true", "yes"}
     uvicorn.run("main:app", host=host, port=port, reload=reload_enabled)

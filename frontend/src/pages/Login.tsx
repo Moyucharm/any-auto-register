@@ -1,16 +1,57 @@
-import { useState } from 'react'
-import { App, Card, ConfigProvider, Form, Input, Button, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { App, Card, ConfigProvider, Form, Input, Button, Spin, Typography } from 'antd'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
 import { setToken } from '@/lib/utils'
 import { darkTheme } from '@/theme'
 
-type Step = 'password' | '2fa'
+type Step = 'loading' | 'setup' | 'password' | '2fa'
 
 function LoginContent() {
   const { message } = App.useApp()
-  const [step, setStep] = useState<Step>('password')
+  const [step, setStep] = useState<Step>('loading')
   const [tempToken, setTempToken] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/auth/status')
+      .then(async res => {
+        const data = await res.json()
+        if (!mounted) return
+        setStep(data.has_password ? 'password' : 'setup')
+      })
+      .catch(() => {
+        if (!mounted) return
+        setStep('password')
+        message.error('读取认证状态失败')
+      })
+    return () => {
+      mounted = false
+    }
+  }, [message])
+
+  const handleSetup = async (values: { password: string; confirm: string }) => {
+    if (values.password !== values.confirm) {
+      message.error('两次输入的密码不一致')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: values.password }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || '初始化失败')
+      setToken(data.access_token)
+      window.location.href = '/'
+    } catch (e: any) {
+      message.error(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleLogin = async (values: { password: string }) => {
     setLoading(true)
@@ -30,6 +71,11 @@ function LoginContent() {
         window.location.href = '/'
       }
     } catch (e: any) {
+      if (e.message === 'no_password_set') {
+        setStep('setup')
+        message.info('请先初始化访问密码')
+        return
+      }
       message.error(e.message)
     } finally {
       setLoading(false)
@@ -67,6 +113,58 @@ function LoginContent() {
     alignItems: 'center',
     justifyContent: 'center',
     background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+  }
+
+  if (step === 'loading') {
+    return (
+      <div style={wrapStyle}>
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  if (step === 'setup') {
+    return (
+      <div style={wrapStyle}>
+        <Card
+          style={cardStyle}
+          title={
+            <div style={{ textAlign: 'center', padding: '8px 0', background: 'transparent' }}>
+              <LockOutlined style={{ fontSize: 28, color: '#6366f1', marginBottom: 8, display: 'block' }} />
+              <div style={{ fontSize: 18, fontWeight: 700 }}>初始化访问密码</div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
+                首次使用前必须先设置管理员访问密码
+              </Typography.Text>
+            </div>
+          }
+        >
+          <Form layout="vertical" onFinish={handleSetup} requiredMark={false}>
+            <Form.Item
+              name="password"
+              label="新密码"
+              rules={[
+                { required: true, message: '请输入密码' },
+                { min: 6, message: '至少 6 位' },
+              ]}
+            >
+              <Input.Password prefix={<LockOutlined />} placeholder="至少 6 位" size="large" />
+            </Form.Item>
+            <Form.Item
+              name="confirm"
+              label="确认密码"
+              rules={[{ required: true, message: '请再次输入密码' }]}
+            >
+              <Input.Password prefix={<LockOutlined />} placeholder="再次输入密码" size="large" />
+            </Form.Item>
+            <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+              <Button type="primary" htmlType="submit" block size="large" loading={loading}>
+                保存并进入系统
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      </div>
+    )
   }
 
   if (step === '2fa') {

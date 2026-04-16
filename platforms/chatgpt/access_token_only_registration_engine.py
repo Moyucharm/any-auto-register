@@ -12,7 +12,7 @@ from core.task_runtime import TaskInterruption
 from platforms.chatgpt.refresh_token_registration_engine import RegistrationResult
 
 from .chatgpt_client import ChatGPTClient
-from .utils import generate_random_name, generate_random_birthday
+from .utils import generate_random_birthday, generate_random_name, generate_random_password
 
 logger = logging.getLogger(__name__)
 
@@ -118,14 +118,14 @@ class AccessTokenOnlyRegistrationEngine:
 
                     result.email = email_addr
 
-                    pwd = self.password or "AAb1234567890!"
+                    pwd = self.password or generate_random_password(16)
                     result.password = pwd
 
                     # 随机姓名、生日
                     first_name, last_name = generate_random_name()
                     birthdate = generate_random_birthday()
 
-                    self._log(f"邮箱: {email_addr}, 密码: {pwd}")
+                    self._log(f"邮箱: {email_addr}, 密码: [REDACTED]")
                     self._log(f"注册信息: {first_name} {last_name}, 生日: {birthdate}")
 
                     # 使用包装器为底层客户端提供接码服务

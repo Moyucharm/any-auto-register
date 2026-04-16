@@ -2656,7 +2656,7 @@ class MoeMailMailbox(BaseMailbox):
         # 注册
         username = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
         password = "Test" + "".join(random.choices(string.digits, k=8)) + "!"
-        print(f"[MoeMail] 注册账号: {username} / {password}")
+        print(f"[MoeMail] 注册账号: {username} / [REDACTED]")
         r_reg = s.post(
             f"{self.api}/api/auth/register",
             json={"username": username, "password": password, "turnstileToken": ""},

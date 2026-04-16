@@ -13,15 +13,35 @@ _POOL_CURSORS: dict[str, int] = {}
 
 
 def _project_root() -> Path:
-    return Path.cwd()
+    return Path.cwd().resolve()
+
+
+def _ensure_project_path(path: Path, *, kind: str) -> Path:
+    root = _project_root()
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{kind}必须位于项目目录内") from exc
+    return resolved
 
 
 def _normalize_pool_dir(pool_dir: str | None = None) -> Path:
     raw = str(pool_dir or "mail").strip() or "mail"
     path = Path(raw)
     if path.is_absolute():
-        return path
-    return _project_root() / path
+        return _ensure_project_path(path, kind="邮箱池目录")
+    return _ensure_project_path(_project_root() / path, kind="邮箱池目录")
+
+
+def _normalize_pool_file(pool_file: str | None = None) -> str:
+    raw = str(pool_file or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    if path.name != raw or raw in {".", ".."}:
+        raise ValueError("邮箱池文件名不合法")
+    return raw
 
 
 def _normalize_filename(filename: str | None = None) -> str:
@@ -176,15 +196,7 @@ def resolve_applemail_pool_path(
 
     raw_file = str(pool_file or "").strip()
     if raw_file:
-        file_path = Path(raw_file)
-        if file_path.is_absolute():
-            resolved = file_path
-        else:
-            resolved = base_dir / file_path.name
-            if not resolved.exists():
-                fallback = _project_root() / raw_file
-                if fallback.exists():
-                    resolved = fallback
+        resolved = base_dir / _normalize_pool_file(raw_file)
         if not resolved.exists():
             raise RuntimeError(f"小苹果邮箱池文件不存在: {resolved}")
         return resolved

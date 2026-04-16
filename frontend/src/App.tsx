@@ -35,7 +35,10 @@ function ProtectedLayout() {
       .then(r => r.json())
       .then(s => {
         const token = getToken()
-        if (s.has_password && !token) {
+        if (!s.has_password) {
+          clearToken()
+          navigate('/login', { replace: true })
+        } else if (!token) {
           navigate('/login', { replace: true })
         } else {
           setReady(true)
