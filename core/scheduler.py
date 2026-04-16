@@ -93,7 +93,6 @@ class Scheduler:
             try:
                 PlatformCls = get(acc.platform)
                 plugin = PlatformCls(config=RegisterConfig())
-                import json
                 account_obj = Account(
                     platform=acc.platform,
                     email=acc.email,
@@ -101,7 +100,7 @@ class Scheduler:
                     user_id=acc.user_id,
                     region=acc.region,
                     token=acc.token,
-                    extra=json.loads(acc.extra_json or "{}"),
+                    extra=acc.get_extra(),
                 )
                 valid = plugin.check_valid(account_obj)
                 with Session(engine) as s:

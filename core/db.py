@@ -2,8 +2,11 @@
 from datetime import datetime, timezone
 import os
 from typing import Optional
+from sqlalchemy import Column, text
 from sqlmodel import Field, SQLModel, create_engine, Session, select
 import json
+
+from .secret_crypto import EncryptedText, encrypt_text, is_encrypted_text
 
 
 def _utcnow():
@@ -19,14 +22,14 @@ class AccountModel(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     platform: str = Field(index=True)
     email: str = Field(index=True)
-    password: str
+    password: str = Field(sa_column=Column(EncryptedText(), nullable=False))
     user_id: str = ""
     region: str = ""
-    token: str = ""
+    token: str = Field(default="", sa_column=Column(EncryptedText(), nullable=False, default=""))
     status: str = "registered"
     trial_end_time: int = 0
     cashier_url: str = ""
-    extra_json: str = "{}"   # JSON 存储平台自定义字段
+    extra_json: str = Field(default="{}", sa_column=Column(EncryptedText(), nullable=False, default="{}"))
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
@@ -76,11 +79,11 @@ class OutlookAccountModel(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(index=True, sa_column_kwargs={"unique": True})
-    password: str
+    password: str = Field(sa_column=Column(EncryptedText(), nullable=False))
     client_id: str = ""
-    refresh_token: str = ""
+    refresh_token: str = Field(default="", sa_column=Column(EncryptedText(), nullable=False, default=""))
     account_type: str = "microsoft_oauth"
-    mailapi_url: str = ""
+    mailapi_url: str = Field(default="", sa_column=Column(EncryptedText(), nullable=False, default=""))
     enabled: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
@@ -113,7 +116,7 @@ def save_account(account) -> 'AccountModel':
             existing.region = account.region or ""
             existing.token = account.token or ""
             existing.status = account.status.value
-            existing.extra_json = json.dumps(account.extra or {}, ensure_ascii=False)
+            existing.set_extra(account.extra or {})
             existing.cashier_url = (account.extra or {}).get("cashier_url", "")
             existing.updated_at = _utcnow()
             session.add(existing)
@@ -128,13 +131,53 @@ def save_account(account) -> 'AccountModel':
             region=account.region or "",
             token=account.token or "",
             status=account.status.value,
-            extra_json=json.dumps(account.extra or {}, ensure_ascii=False),
             cashier_url=(account.extra or {}).get("cashier_url", ""),
         )
+        m.set_extra(account.extra or {})
         session.add(m)
         session.commit()
         session.refresh(m)
         return m
+
+
+def _migrate_encrypted_secret_columns() -> None:
+    table_columns = {
+        "accounts": ["password", "token", "extra_json"],
+        "outlook_accounts": ["password", "refresh_token", "mailapi_url"],
+    }
+    primary_keys = {
+        "accounts": "id",
+        "outlook_accounts": "id",
+    }
+
+    with engine.begin() as conn:
+        for table_name, columns in table_columns.items():
+            pk_name = primary_keys[table_name]
+            rows = conn.execute(
+                text(
+                    f"SELECT {pk_name}, {', '.join(columns)} FROM {table_name}"
+                )
+            ).mappings().all()
+            for row in rows:
+                updates = {}
+                for column_name in columns:
+                    raw_value = row.get(column_name)
+                    if raw_value in (None, ""):
+                        continue
+                    raw_text = str(raw_value)
+                    if is_encrypted_text(raw_text):
+                        continue
+                    updates[column_name] = encrypt_text(raw_text)
+                if not updates:
+                    continue
+                assignments = ", ".join(
+                    f"{column_name} = :{column_name}" for column_name in updates.keys()
+                )
+                params = {**updates, pk_name: row[pk_name]}
+                conn.execute(
+                    text(f"UPDATE {table_name} SET {assignments} WHERE {pk_name} = :{pk_name}"),
+                    params,
+                )
 
 
 def _migrate_outlook_accounts_schema() -> None:
@@ -164,6 +207,7 @@ def _migrate_outlook_accounts_schema() -> None:
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrate_outlook_accounts_schema()
+    _migrate_encrypted_secret_columns()
 
 
 def get_session():

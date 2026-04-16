@@ -588,7 +588,12 @@ export default function Accounts() {
 
     setLoading(true)
     try {
-      const params = new URLSearchParams({ platform: currentPlatform, page: String(page), page_size: String(pageSize) })
+      const params = new URLSearchParams({
+        platform: currentPlatform,
+        page: String(page),
+        page_size: String(pageSize),
+        include_secrets: 'true',
+      })
       if (search) params.set('email', search)
       if (filterStatus) params.set('status', filterStatus)
       if (createdAtStart) params.set('created_at_start', createdAtStart)

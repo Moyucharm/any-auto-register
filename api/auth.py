@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from core.secret_crypto import load_persistent_secret
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _bearer = HTTPBearer(auto_error=False)
@@ -36,13 +38,20 @@ def _cfg():
 
 def _jwt_secret() -> str:
     env_secret = os.getenv("APP_JWT_SECRET", "")
+    cfg = _cfg()
+    stored = cfg.get("auth_jwt_secret", "")
     if env_secret:
+        if stored:
+            cfg.set("auth_jwt_secret", "")
         return env_secret
-    stored = _cfg().get("auth_jwt_secret", "")
-    if not stored:
-        stored = secrets.token_hex(32)
-        _cfg().set("auth_jwt_secret", stored)
-    return stored
+    secret = load_persistent_secret(
+        env_name="APP_JWT_SECRET",
+        file_name="auth_jwt_secret",
+        legacy_value=stored,
+    )
+    if stored:
+        cfg.set("auth_jwt_secret", "")
+    return secret
 
 
 def _b64url_encode(data: bytes) -> str:

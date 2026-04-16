@@ -11,6 +11,61 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
+_REDACTED = "[REDACTED]"
+_SENSITIVE_EXTRA_KEYS = {
+    "access_token",
+    "accesstoken",
+    "refreshtoken",
+    "refresh_token",
+    "id_token",
+    "idtoken",
+    "session_token",
+    "sessiontoken",
+    "client_secret",
+    "clientsecret",
+    "webaccesstoken",
+    "cookies",
+}
+
+
+def _model_dump(model: AccountModel) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _redact_secret(value: str) -> str:
+    return _REDACTED if str(value or "").strip() else ""
+
+
+def _normalize_secret_key(key: str) -> str:
+    text = str(key or "").strip()
+    return "".join(ch for ch in text.lower() if ch.isalnum() or ch == "_")
+
+
+def _sanitize_extra(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if _normalize_secret_key(key) in _SENSITIVE_EXTRA_KEYS:
+                sanitized[key] = _redact_secret(str(item or ""))
+            else:
+                sanitized[key] = _sanitize_extra(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_extra(item) for item in value]
+    return value
+
+
+def _account_payload(acc: AccountModel, *, include_secrets: bool) -> dict:
+    payload = _model_dump(acc)
+    if include_secrets:
+        return payload
+    payload["password"] = _redact_secret(str(payload.get("password") or ""))
+    payload["token"] = _redact_secret(str(payload.get("token") or ""))
+    payload["extra_json"] = json.dumps(_sanitize_extra(acc.get_extra()), ensure_ascii=False)
+    return payload
+
 
 class AccountCreate(BaseModel):
     platform: str
@@ -43,6 +98,7 @@ def list_accounts(
     email: Optional[str] = None,
     created_at_start: Optional[datetime] = None,
     created_at_end: Optional[datetime] = None,
+    include_secrets: bool = False,
     page: int = 1,
     page_size: int = 20,
     session: Session = Depends(get_session),
@@ -60,7 +116,11 @@ def list_accounts(
         q = q.where(AccountModel.created_at <= created_at_end)
     total = len(session.exec(q).all())
     items = session.exec(q.offset((page - 1) * page_size).limit(page_size)).all()
-    return {"total": total, "page": page, "items": items}
+    return {
+        "total": total,
+        "page": page,
+        "items": [_account_payload(item, include_secrets=include_secrets) for item in items],
+    }
 
 
 @router.post("")
@@ -76,7 +136,7 @@ def create_account(body: AccountCreate, session: Session = Depends(get_session))
     session.add(acc)
     session.commit()
     session.refresh(acc)
-    return acc
+    return _account_payload(acc, include_secrets=False)
 
 
 @router.get("/stats")
@@ -95,6 +155,7 @@ def get_stats(session: Session = Depends(get_session)):
 def export_accounts(
     platform: Optional[str] = None,
     status: Optional[str] = None,
+    include_secrets: bool = False,
     session: Session = Depends(get_session),
 ):
     q = select(AccountModel)
@@ -109,7 +170,8 @@ def export_accounts(
     writer.writerow(["platform", "email", "password", "user_id", "region",
                      "status", "cashier_url", "created_at"])
     for acc in accounts:
-        writer.writerow([acc.platform, acc.email, acc.password, acc.user_id,
+        password = acc.password if include_secrets else _redact_secret(acc.password)
+        writer.writerow([acc.platform, acc.email, password, acc.user_id,
                          acc.region, acc.status, acc.cashier_url,
                          acc.created_at.strftime("%Y-%m-%d %H:%M:%S")])
     output.seek(0)
@@ -195,11 +257,11 @@ def check_all_accounts(platform: Optional[str] = None,
 
 
 @router.get("/{account_id}")
-def get_account(account_id: int, session: Session = Depends(get_session)):
+def get_account(account_id: int, include_secrets: bool = False, session: Session = Depends(get_session)):
     acc = session.get(AccountModel, account_id)
     if not acc:
         raise HTTPException(404, "账号不存在")
-    return acc
+    return _account_payload(acc, include_secrets=include_secrets)
 
 
 @router.patch("/{account_id}")
@@ -218,7 +280,7 @@ def update_account(account_id: int, body: AccountUpdate,
     session.add(acc)
     session.commit()
     session.refresh(acc)
-    return acc
+    return _account_payload(acc, include_secrets=False)
 
 
 @router.delete("/{account_id}")
@@ -255,7 +317,7 @@ def _do_check(account_id: int):
             obj = Account(platform=acc.platform, email=acc.email,
                          password=acc.password, user_id=acc.user_id,
                          region=acc.region, token=acc.token,
-                         extra=json.loads(acc.extra_json or "{}"))
+                         extra=acc.get_extra())
             valid = plugin.check_valid(obj)
             with Session(engine) as s:
                 a = s.get(AccountModel, account_id)
